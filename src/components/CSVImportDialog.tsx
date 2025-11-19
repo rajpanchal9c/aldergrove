@@ -49,6 +49,50 @@ member4,Emily,Doe,Brown,female,1977-08-25,,,,,Doctor,member1,member2,,member3`;
         }
     };
 
+    const parseCSV = (text) => {
+        const lines = text.split('\n');
+        const headers = lines[0].split(',').map(h => h.trim());
+        const result = [];
+
+        for (let i = 1; i < lines.length; i++) {
+            if (!lines[i].trim()) continue;
+
+            const obj = {};
+            let currentLine = lines[i];
+            let inQuotes = false;
+            let currentValue = '';
+            let headerIndex = 0;
+
+            for (let charIndex = 0; charIndex < currentLine.length; charIndex++) {
+                const char = currentLine[charIndex];
+
+                if (char === '"') {
+                    if (inQuotes && currentLine[charIndex + 1] === '"') {
+                        currentValue += '"';
+                        charIndex++;
+                    } else {
+                        inQuotes = !inQuotes;
+                    }
+                } else if (char === ',' && !inQuotes) {
+                    if (headerIndex < headers.length) {
+                        obj[headers[headerIndex]] = currentValue.trim();
+                    }
+                    headerIndex++;
+                    currentValue = '';
+                } else {
+                    currentValue += char;
+                }
+            }
+            // Add last value
+            if (headerIndex < headers.length) {
+                obj[headers[headerIndex]] = currentValue.trim();
+            }
+
+            result.push(obj);
+        }
+        return result;
+    };
+
     const handleImport = async () => {
         if (!file) {
             toast.error("Please select a file first");
@@ -59,56 +103,19 @@ member4,Emily,Doe,Brown,female,1977-08-25,,,,,Doctor,member1,member2,,member3`;
         setImportResult(null);
 
         try {
-            // Step 1: Upload the file
-            toast.info("Uploading CSV file...");
-            const { file_url } = await base44.integrations.Core.UploadFile({ file }) as any;
+            // Step 1: Read the file
+            const text = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => resolve(e.target?.result);
+                reader.onerror = (e) => reject(e);
+                reader.readAsText(file);
+            });
 
-            // Step 2: Extract data using the FamilyMember schema
+            // Step 2: Parse CSV data
             toast.info("Processing CSV data...");
+            const membersData = parseCSV(text as string);
 
-            // Define the schema for FamilyMember entity
-            const fullSchema = {
-                type: "array",
-                items: {
-                    type: "object",
-                    properties: {
-                        id: { type: "string" },
-                        first_name: { type: "string" },
-                        last_name: { type: "string" },
-                        maiden_name: { type: "string" },
-                        gender: { type: "string", enum: ["male", "female", "other"] },
-                        birth_date: { type: "string", format: "date" },
-                        death_date: { type: "string", format: "date" },
-                        birth_place: { type: "string" },
-                        photo_url: { type: "string" },
-                        bio: { type: "string" },
-                        occupation: { type: "string" },
-                        father_id: { type: "string" },
-                        mother_id: { type: "string" },
-                        spouse_ids: {
-                            type: "array",
-                            items: { type: "string" }
-                        },
-                        sibling_ids: {
-                            type: "array",
-                            items: { type: "string" }
-                        }
-                    }
-                }
-            };
-
-            const extractResult: any = await base44.integrations.Core.ExtractDataFromUploadedFile({
-                file_url,
-                json_schema: JSON.stringify(fullSchema)
-            } as any);
-
-            if (extractResult.status === "error") {
-                throw new Error(extractResult.details || "Failed to parse CSV file");
-            }
-
-            let membersData = extractResult.output?.data || [];
-
-            if (!Array.isArray(membersData) || membersData.length === 0) {
+            if (membersData.length === 0) {
                 throw new Error("No valid data found in CSV file");
             }
 
@@ -123,12 +130,14 @@ member4,Emily,Doe,Brown,female,1977-08-25,,,,,Doctor,member1,member2,,member3`;
                     }
                 });
 
-                // Handle comma-separated spouse_ids and sibling_ids
+                // Handle comma-separated or semicolon-separated spouse_ids and sibling_ids
                 if (cleaned.spouse_ids && typeof cleaned.spouse_ids === "string") {
-                    cleaned.spouse_ids = cleaned.spouse_ids.split(",").map(id => id.trim()).filter(Boolean);
+                    const separator = cleaned.spouse_ids.includes(";") ? ";" : ",";
+                    cleaned.spouse_ids = cleaned.spouse_ids.split(separator).map(id => id.trim()).filter(Boolean);
                 }
                 if (cleaned.sibling_ids && typeof cleaned.sibling_ids === "string") {
-                    cleaned.sibling_ids = cleaned.sibling_ids.split(",").map(id => id.trim()).filter(Boolean);
+                    const separator = cleaned.sibling_ids.includes(";") ? ";" : ",";
+                    cleaned.sibling_ids = cleaned.sibling_ids.split(separator).map(id => id.trim()).filter(Boolean);
                 }
 
                 // Ensure arrays are arrays
@@ -174,13 +183,13 @@ member4,Emily,Doe,Brown,female,1977-08-25,,,,,Doctor,member1,member2,,member3`;
                 }
                 if (original.spouse_ids) {
                     const spouseIds = typeof original.spouse_ids === "string"
-                        ? original.spouse_ids.split(",").map(id => id.trim()).filter(Boolean)
+                        ? original.spouse_ids.split(original.spouse_ids.includes(";") ? ";" : ",").map(id => id.trim()).filter(Boolean)
                         : original.spouse_ids;
                     updates.spouse_ids = spouseIds.map(oldId => idMapping[oldId] || oldId).filter(Boolean);
                 }
                 if (original.sibling_ids) {
                     const siblingIds = typeof original.sibling_ids === "string"
-                        ? original.sibling_ids.split(",").map(id => id.trim()).filter(Boolean)
+                        ? original.sibling_ids.split(original.sibling_ids.includes(";") ? ";" : ",").map(id => id.trim()).filter(Boolean)
                         : original.sibling_ids;
                     updates.sibling_ids = siblingIds.map(oldId => idMapping[oldId] || oldId).filter(Boolean);
                 }

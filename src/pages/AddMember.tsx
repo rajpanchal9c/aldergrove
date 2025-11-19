@@ -46,6 +46,7 @@ export default function AddMember() {
         mother_id: "",
         spouse_ids: [],
         sibling_ids: [],
+        child_ids: [],
     });
 
     const { data: familyMembers } = useQuery({
@@ -74,6 +75,7 @@ export default function AddMember() {
                     mother_id: member.mother_id || "",
                     spouse_ids: member.spouse_ids || [],
                     sibling_ids: member.sibling_ids || [],
+                    child_ids: familyMembers.filter(m => m.father_id === editId || m.mother_id === editId).map(m => m.id) || [],
                 });
             }
         }
@@ -111,6 +113,60 @@ export default function AddMember() {
             });
 
             await Promise.all(updatePromises);
+
+            // 3. Add connection for new siblings
+            const newSiblingIds = formData.sibling_ids || [];
+            const siblingUpdatePromises = newSiblingIds.map(async (siblingId) => {
+                const sibling = familyMembers.find(m => m.id === siblingId);
+                if (sibling && (!sibling.sibling_ids || !sibling.sibling_ids.includes(memberId))) {
+                    const updatedSiblingIds = [...(sibling.sibling_ids || []), memberId];
+                    await base44.entities.FamilyMember.update(siblingId, { sibling_ids: updatedSiblingIds });
+                }
+            });
+
+            // 4. Remove connection for removed siblings
+            const removedSiblings = familyMembers.filter(m =>
+                m.sibling_ids?.includes(memberId) && !newSiblingIds.includes(m.id)
+            );
+
+            removedSiblings.forEach(sibling => {
+                siblingUpdatePromises.push((async () => {
+                    const updatedSiblingIds = sibling.sibling_ids.filter(id => id !== memberId);
+                    await base44.entities.FamilyMember.update(sibling.id, { sibling_ids: updatedSiblingIds });
+                })());
+            });
+
+            await Promise.all(siblingUpdatePromises);
+
+            // 5. Handle children - update their father_id or mother_id based on this member's gender
+            const newChildIds = formData.child_ids || [];
+            const memberGender = formData.gender;
+            const parentField = memberGender === 'male' ? 'father_id' : memberGender === 'female' ? 'mother_id' : null;
+
+            if (parentField) {
+                const childUpdatePromises = newChildIds.map(async (childId) => {
+                    const child = familyMembers.find(m => m.id === childId);
+                    if (child && child[parentField] !== memberId) {
+                        await base44.entities.FamilyMember.update(childId, { [parentField]: memberId });
+                    }
+                });
+
+                // Remove parent link for children that were removed
+                const removedChildren = familyMembers.filter(m =>
+                    (m.father_id === memberId || m.mother_id === memberId) && !newChildIds.includes(m.id)
+                );
+
+                removedChildren.forEach(child => {
+                    childUpdatePromises.push((async () => {
+                        const updates: any = {};
+                        if (child.father_id === memberId) updates.father_id = '';
+                        if (child.mother_id === memberId) updates.mother_id = '';
+                        await base44.entities.FamilyMember.update(child.id, updates);
+                    })());
+                });
+
+                await Promise.all(childUpdatePromises);
+            }
 
             queryClient.invalidateQueries({ queryKey: ["familyMembers"] });
             toast.success(editId ? "Member updated successfully!" : "Member added successfully!");
@@ -190,10 +246,27 @@ export default function AddMember() {
         }));
     };
 
+    const addChild = (childId) => {
+        if (childId && !formData.child_ids.includes(childId)) {
+            setFormData(prev => ({
+                ...prev,
+                child_ids: [...prev.child_ids, childId]
+            }));
+        }
+    };
+
+    const removeChild = (childId) => {
+        setFormData(prev => ({
+            ...prev,
+            child_ids: prev.child_ids.filter(id => id !== childId)
+        }));
+    };
+
     const maleMembersForParents = familyMembers.filter(m => m.gender === "male" && m.id !== editId);
     const femaleMembersForParents = familyMembers.filter(m => m.gender === "female" && m.id !== editId);
     const potentialSpouses = familyMembers.filter(m => m.id !== editId && !formData.spouse_ids.includes(m.id));
     const potentialSiblings = familyMembers.filter(m => m.id !== editId && !formData.sibling_ids.includes(m.id));
+    const potentialChildren = familyMembers.filter(m => m.id !== editId && !formData.child_ids.includes(m.id));
 
     return (
         <div className="container mx-auto px-4 py-8 max-w-4xl">
@@ -543,6 +616,48 @@ export default function AddMember() {
                                     </SelectTrigger>
                                     <SelectContent>
                                         {potentialSiblings.map(member => (
+                                            <SelectItem key={member.id} value={member.id}>
+                                                {member.first_name} {member.last_name}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        </div>
+
+                        {/* Children */}
+                        <div>
+                            <Label className="text-sm font-medium flex items-center gap-2">
+                                <Users className="w-4 h-4 text-green-500" />
+                                Children
+                            </Label>
+                            <div className="mt-2 space-y-3">
+                                {formData.child_ids.length > 0 && (
+                                    <div className="flex flex-wrap gap-2">
+                                        {formData.child_ids.map(childId => {
+                                            const child = familyMembers.find(m => m.id === childId);
+                                            if (!child) return null;
+                                            return (
+                                                <Badge key={childId} className="bg-green-50 text-green-700 border-green-200 pr-1">
+                                                    {child.first_name} {child.last_name}
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => removeChild(childId)}
+                                                        className="ml-2 hover:bg-green-200 rounded-full p-0.5"
+                                                    >
+                                                        <X className="w-3 h-3" />
+                                                    </button>
+                                                </Badge>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                                <Select onValueChange={addChild}>
+                                    <SelectTrigger className="border-2">
+                                        <SelectValue placeholder="Add child" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {potentialChildren.map(member => (
                                             <SelectItem key={member.id} value={member.id}>
                                                 {member.first_name} {member.last_name}
                                             </SelectItem>

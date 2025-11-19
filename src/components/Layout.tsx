@@ -24,64 +24,35 @@ export default function Layout({ children }: LayoutProps) {
     return (
         <div className="min-h-screen bg-[#FAFAFA]">
             {/* Material Design App Bar */}
-            <header className="fixed top-0 left-0 right-0 z-50 bg-white shadow-md">
-                <div className="container mx-auto px-4">
-                    <div className="flex items-center justify-between h-16">
-                        <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-600 to-blue-700 flex items-center justify-center shadow-lg">
-                                <Users className="w-6 h-6 text-white" />
+            {!isTreeView && (
+                <header className="fixed top-0 left-0 right-0 z-50 bg-white shadow-md">
+                    <div className="container mx-auto px-4">
+                        <div className="flex items-center justify-between h-16">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-600 to-blue-700 flex items-center justify-center shadow-lg">
+                                    <Users className="w-6 h-6 text-white" />
+                                </div>
+                                <div>
+                                    <h1 className="text-xl font-semibold text-gray-900">Family Tree</h1>
+                                    <p className="text-xs text-gray-500">Build your legacy</p>
+                                </div>
                             </div>
-                            <div>
-                                <h1 className="text-xl font-semibold text-gray-900">Family Tree</h1>
-                                <p className="text-xs text-gray-500">Build your legacy</p>
-                            </div>
+
+                            <nav className="hidden md:flex items-center gap-2">
+                                <Link to={createPageUrl("AddMember")}>
+                                    <button className="relative px-4 py-2 bg-blue-600 text-white rounded-lg font-medium shadow-lg hover:shadow-xl transition-all overflow-hidden group">
+                                        <span className="relative z-10 flex items-center gap-2">
+                                            <Plus className="w-4 h-4" />
+                                            Add Member
+                                        </span>
+                                        <span className="absolute inset-0 bg-blue-700 transform scale-0 group-hover:scale-100 transition-transform rounded-lg"></span>
+                                    </button>
+                                </Link>
+                            </nav>
                         </div>
-
-                        <nav className="hidden md:flex items-center gap-2">
-                            {/* View Mode Buttons - only show on TreeView */}
-                            {isTreeView && (
-                                <>
-                                    <Button
-                                        variant="outline"
-                                        onClick={() => handleViewModeChange('tree')}
-                                        size="sm"
-                                    >
-                                        <Network className="w-4 h-4 mr-2" />
-                                        Tree
-                                    </Button>
-                                    <Button
-                                        variant="outline"
-                                        onClick={() => handleViewModeChange('grid')}
-                                        size="sm"
-                                    >
-                                        <Grid3x3 className="w-4 h-4 mr-2" />
-                                        Grid
-                                    </Button>
-                                    <Button
-                                        variant="outline"
-                                        onClick={handleImportClick}
-                                        className="border-2 border-green-600 text-green-600 hover:bg-green-50"
-                                        size="sm"
-                                    >
-                                        <FileUp className="w-4 h-4 mr-2" />
-                                        Import CSV
-                                    </Button>
-                                </>
-                            )}
-                        </nav>
-
-                        <Link to={createPageUrl("AddMember")}>
-                            <button className="relative px-4 py-2 bg-blue-600 text-white rounded-lg font-medium shadow-lg hover:shadow-xl transition-all overflow-hidden group">
-                                <span className="relative z-10 flex items-center gap-2">
-                                    <Plus className="w-4 h-4" />
-                                    Add Member
-                                </span>
-                                <span className="absolute inset-0 bg-blue-700 transform scale-0 group-hover:scale-100 transition-transform rounded-lg"></span>
-                            </button>
-                        </Link>
                     </div>
-                </div>
-            </header>
+                </header>
+            )}
 
             {/* Mobile Bottom Navigation */}
             <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-gray-200 shadow-lg">
@@ -112,7 +83,7 @@ export default function Layout({ children }: LayoutProps) {
             </nav>
 
             {/* Main Content */}
-            <main className="pt-16 pb-20 md:pb-8">
+            <main className={`${isTreeView ? '' : 'pt-16'} pb-20 md:pb-8`}>
                 {children}
             </main>
         </div>

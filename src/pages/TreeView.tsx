@@ -7,7 +7,8 @@ import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import {
     Plus, Search, Filter, Users,
-    Network, Grid3x3, FileUp, Trash2, X
+    Network, Grid3x3, FileUp, Trash2, X,
+    Download, Upload, LayoutGrid, GitBranch
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
@@ -65,6 +66,19 @@ export default function TreeView() {
                     }
                 }));
             }
+            // Remove from parents' child_ids and siblings' sibling_ids
+            // Note: child_ids are not explicitly stored in this schema (derived from father_id/mother_id), 
+            // but sibling_ids are.
+            if (member && member.sibling_ids) {
+                await Promise.all(member.sibling_ids.map(async (siblingId) => {
+                    const sibling = familyMembers.find(m => m.id === siblingId);
+                    if (sibling) {
+                        const updatedSiblingIds = (sibling.sibling_ids || []).filter(sid => sid !== id);
+                        await base44.entities.FamilyMember.update(siblingId, { sibling_ids: updatedSiblingIds });
+                    }
+                }));
+            }
+
             return base44.entities.FamilyMember.delete(id);
         },
         onSuccess: () => {
@@ -74,9 +88,11 @@ export default function TreeView() {
 
     const bulkDeleteMutation = useMutation({
         mutationFn: async (ids: string[]) => {
-            // Remove these members from their spouses' lists
+            // Remove these members from their spouses' lists and siblings' lists
             await Promise.all(ids.map(async (id) => {
                 const member = familyMembers.find(m => m.id === id);
+
+                // Handle spouses
                 if (member && member.spouse_ids) {
                     await Promise.all(member.spouse_ids.map(async (spouseId) => {
                         // Skip if the spouse is also being deleted
@@ -86,6 +102,20 @@ export default function TreeView() {
                         if (spouse) {
                             const updatedSpouseIds = (spouse.spouse_ids || []).filter(sid => sid !== id);
                             await base44.entities.FamilyMember.update(spouseId, { spouse_ids: updatedSpouseIds });
+                        }
+                    }));
+                }
+
+                // Handle siblings
+                if (member && member.sibling_ids) {
+                    await Promise.all(member.sibling_ids.map(async (siblingId) => {
+                        // Skip if the sibling is also being deleted
+                        if (ids.includes(siblingId)) return;
+
+                        const sibling = familyMembers.find(m => m.id === siblingId);
+                        if (sibling) {
+                            const updatedSiblingIds = (sibling.sibling_ids || []).filter(sid => sid !== id);
+                            await base44.entities.FamilyMember.update(siblingId, { sibling_ids: updatedSiblingIds });
                         }
                     }));
                 }
@@ -125,6 +155,60 @@ export default function TreeView() {
         }
     };
 
+    const handleExport = () => {
+        if (!familyMembers || familyMembers.length === 0) {
+            toast.error("No family members to export");
+            return;
+        }
+
+        try {
+            // Define headers
+            const headers = [
+                "id", "first_name", "last_name", "maiden_name", "gender",
+                "birth_date", "death_date", "birth_place", "photo_url",
+                "bio", "occupation", "father_id", "mother_id", "spouse_ids", "sibling_ids"
+            ];
+
+            // Convert data to CSV rows
+            const csvRows = [headers.join(",")];
+
+            familyMembers.forEach(member => {
+                const row = headers.map(header => {
+                    let value = member[header] || "";
+
+                    // Handle arrays (spouse_ids, sibling_ids)
+                    if (Array.isArray(value)) {
+                        value = value.join(";"); // Use semicolon for array values to avoid CSV conflict
+                    }
+
+                    // Escape quotes and wrap in quotes if contains comma
+                    const stringValue = String(value);
+                    if (stringValue.includes(",") || stringValue.includes('"') || stringValue.includes("\n")) {
+                        return `"${stringValue.replace(/"/g, '""')}"`;
+                    }
+                    return stringValue;
+                });
+                csvRows.push(row.join(","));
+            });
+
+            const csvContent = csvRows.join("\n");
+            const blob = new Blob([csvContent], { type: "text/csv" });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `family_tree_export_${new Date().toISOString().split('T')[0]}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+
+            toast.success(`Exported ${familyMembers.length} family members!`);
+        } catch (error) {
+            console.error("Export error:", error);
+            toast.error("Failed to export data");
+        }
+    };
+
     const filteredMembers = familyMembers.filter(member => {
         const fullName = `${member.first_name} ${member.last_name}`.toLowerCase();
         const search = searchQuery.toLowerCase();
@@ -146,109 +230,106 @@ export default function TreeView() {
     }
 
     return (
-        <div className="min-h-screen">
-            <div className="container mx-auto px-4 py-8">
-                {/* Hero Section */}
-                <div className="mb-8 text-center">
-                    <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-2">
-                        Your Family Tree
-                    </h2>
-                    <p className="text-gray-600">
-                        {familyMembers.length} {familyMembers.length === 1 ? "member" : "members"} in your family
-                    </p>
-                </div>
+        <div className="min-h-screen bg-gray-50 pb-20 md:pb-0">
+            {/* Header */}
+            <div className="bg-white border-b sticky top-0 z-30 px-4 py-3 shadow-sm">
+                <div className="max-w-7xl mx-auto flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                        <h1 className="text-xl font-bold text-gray-900 hidden md:block">My Family Tree</h1>
+                        <div className="flex bg-gray-100 rounded-lg p-1">
+                            <button
+                                onClick={() => setViewMode("tree")}
+                                className={`p-2 rounded-md transition-all ${viewMode === "tree" ? "bg-white shadow-sm text-blue-600" : "text-gray-500 hover:text-gray-700"}`}
+                                title="Tree View"
+                            >
+                                <GitBranch className="w-5 h-5" />
+                            </button>
+                            <button
+                                onClick={() => setViewMode("grid")}
+                                className={`p-2 rounded-md transition-all ${viewMode === "grid" ? "bg-white shadow-sm text-blue-600" : "text-gray-500 hover:text-gray-700"}`}
+                                title="Grid View"
+                            >
+                                <LayoutGrid className="w-5 h-5" />
+                            </button>
+                        </div>
+                    </div>
 
-                {/* Search Bar */}
-                <div className="mb-8 max-w-2xl mx-auto">
-                    <div className="relative">
-                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-                        <Input
-                            type="text"
-                            placeholder="Search by name, occupation, or place..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            className="pl-10 h-12 border-2 border-gray-200 focus:border-blue-600 transition-colors shadow-sm"
-                        />
+                    <div className="flex items-center gap-2 md:gap-4">
+                        <div className="relative hidden md:block">
+                            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                            <input
+                                type="text"
+                                placeholder="Search family..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                className="pl-9 pr-4 py-2 bg-gray-100 border-none rounded-full text-sm focus:ring-2 focus:ring-blue-500 w-64"
+                            />
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={handleExport}
+                                className="hidden md:flex items-center gap-2"
+                            >
+                                <Download className="w-4 h-4" />
+                                Export Data
+                            </Button>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setShowImportDialog(true)}
+                                className="hidden md:flex items-center gap-2"
+                            >
+                                <Upload className="w-4 h-4" />
+                                Import CSV
+                            </Button>
+                            <Link to={createPageUrl("AddMember")}>
+                                <Button size="sm" className="hidden md:flex bg-blue-600 hover:bg-blue-700">
+                                    <Plus className="w-4 h-4 mr-2" />
+                                    Add Member
+                                </Button>
+                            </Link>
+                        </div>
                     </div>
                 </div>
+            </div>
 
-                {/* Mobile Action Buttons */}
-                <div className="md:hidden mb-6 flex justify-center gap-2 flex-wrap">
-                    {familyMembers.length > 0 && (
-                        <>
-                            <Button
-                                variant={viewMode === "tree" ? "default" : "outline"}
-                                onClick={() => {
-                                    setViewMode("tree");
-                                    clearSelection();
-                                }}
-                                className={viewMode === "tree" ? "bg-blue-600" : ""}
-                                size="sm"
-                            >
-                                <Network className="w-4 h-4 mr-2" />
-                                Tree View
-                            </Button>
-                            <Button
-                                variant={viewMode === "grid" ? "default" : "outline"}
-                                onClick={() => setViewMode("grid")}
-                                className={viewMode === "grid" ? "bg-blue-600" : ""}
-                                size="sm"
-                            >
-                                <Grid3x3 className="w-4 h-4 mr-2" />
-                                Grid View
-                            </Button>
-                        </>
-                    )}
-                    <Button
-                        variant="outline"
-                        onClick={() => setShowImportDialog(true)}
-                        className="border-2 border-green-600 text-green-600 hover:bg-green-50"
-                        size="sm"
-                    >
-                        <FileUp className="w-4 h-4 mr-2" />
-                        Import CSV
-                    </Button>
+            {/* Mobile Search */}
+            <div className="md:hidden px-4 py-2 bg-white border-b">
+                <div className="relative">
+                    <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <input
+                        type="text"
+                        placeholder="Search family..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="w-full pl-9 pr-4 py-2 bg-gray-100 border-none rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+                    />
                 </div>
+            </div>
 
-                {/* Bulk Selection Bar */}
-                {viewMode === "grid" && selectedMembers.length > 0 && (
-                    <div className="mb-6 max-w-2xl mx-auto">
-                        <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4 flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 bg-blue-600 text-white rounded-full flex items-center justify-center font-semibold">
-                                    {selectedMembers.length}
-                                </div>
-                                <div>
-                                    <p className="font-semibold text-gray-900">
-                                        {selectedMembers.length} member{selectedMembers.length > 1 ? 's' : ''} selected
-                                    </p>
-                                    <button
-                                        onClick={selectAllFiltered}
-                                        className="text-sm text-blue-600 hover:underline"
-                                    >
-                                        Select all {filteredMembers.length} in view
-                                    </button>
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <Button
-                                    onClick={handleBulkDelete}
-                                    disabled={bulkDeleteMutation.isPending}
-                                    variant="outline"
-                                    className="border-red-200 text-red-600 hover:bg-red-50"
-                                >
-                                    <Trash2 className="w-4 h-4 mr-2" />
-                                    Delete Selected
-                                </Button>
-                                <Button
-                                    onClick={clearSelection}
-                                    variant="ghost"
-                                    size="icon"
-                                >
-                                    <X className="w-4 h-4" />
-                                </Button>
-                            </div>
-                        </div>
+            {/* Main Content */}
+            <div className="max-w-7xl mx-auto p-4 md:p-6 min-h-[calc(100vh-80px)]">
+                {/* Selection Toolbar */}
+                {selectedMembers.length > 0 && (
+                    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-white shadow-xl border rounded-full px-6 py-3 flex items-center gap-4 z-40 animate-in slide-in-from-bottom-4">
+                        <span className="font-medium text-gray-900">{selectedMembers.length} selected</span>
+                        <div className="h-4 w-px bg-gray-200" />
+                        <button
+                            onClick={() => bulkDeleteMutation.mutate(selectedMembers)}
+                            className="text-red-600 hover:text-red-700 font-medium text-sm flex items-center gap-2"
+                        >
+                            <Trash2 className="w-4 h-4" />
+                            Delete
+                        </button>
+                        <button
+                            onClick={() => setSelectedMembers([])}
+                            className="text-gray-500 hover:text-gray-700 ml-2"
+                        >
+                            <X className="w-5 h-5" />
+                        </button>
                     </div>
                 )}
 
@@ -285,17 +366,20 @@ export default function TreeView() {
 
                 {/* Tree View */}
                 {viewMode === "tree" && filteredMembers.length > 0 && (
-                    <div className="mb-8">
+                    <div className="h-[calc(100vh-140px)] bg-white rounded-xl shadow-sm border overflow-hidden relative">
                         <FamilyTreeGraph
                             familyMembers={filteredMembers}
-                            onMemberClick={(member) => setSelectedMember(member)}
+                            onMemberClick={setSelectedMember}
                         />
+                        <div className="absolute bottom-4 right-4 bg-white/90 backdrop-blur px-3 py-1.5 rounded-lg text-xs text-gray-500 border shadow-sm">
+                            Scroll to zoom • Drag to pan
+                        </div>
                     </div>
                 )}
 
                 {/* Grid View */}
                 {viewMode === "grid" && filteredMembers.length > 0 && (
-                    <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                         {filteredMembers.map((member) => (
                             <MemberCard
                                 key={member.id}
