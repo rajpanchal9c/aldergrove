@@ -16,13 +16,16 @@ import MemberCard from "../components/MemberCard";
 import MemberDialog from "../components/MemberDialog";
 import FamilyTreeGraph from "../components/FamilyTreeGraph";
 import CSVImportDialog from "../components/CSVImportDialog";
+import ExportDialog from "../components/ExportDialog";
 
 export default function TreeView() {
     const [searchQuery, setSearchQuery] = useState("");
     const [selectedMember, setSelectedMember] = useState(null);
     const [viewMode, setViewMode] = useState("tree");
     const [showImportDialog, setShowImportDialog] = useState(false);
+    const [showExportDialog, setShowExportDialog] = useState(false);
     const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
+    const treeContainerRef = React.useRef<HTMLDivElement>(null);
     const queryClient = useQueryClient();
 
     const { data: familyMembers, isLoading } = useQuery({
@@ -155,60 +158,6 @@ export default function TreeView() {
         }
     };
 
-    const handleExport = () => {
-        if (!familyMembers || familyMembers.length === 0) {
-            toast.error("No family members to export");
-            return;
-        }
-
-        try {
-            // Define headers
-            const headers = [
-                "id", "first_name", "last_name", "maiden_name", "gender",
-                "birth_date", "death_date", "birth_place", "photo_url",
-                "bio", "occupation", "father_id", "mother_id", "spouse_ids", "sibling_ids"
-            ];
-
-            // Convert data to CSV rows
-            const csvRows = [headers.join(",")];
-
-            familyMembers.forEach(member => {
-                const row = headers.map(header => {
-                    let value = member[header] || "";
-
-                    // Handle arrays (spouse_ids, sibling_ids)
-                    if (Array.isArray(value)) {
-                        value = value.join(";"); // Use semicolon for array values to avoid CSV conflict
-                    }
-
-                    // Escape quotes and wrap in quotes if contains comma
-                    const stringValue = String(value);
-                    if (stringValue.includes(",") || stringValue.includes('"') || stringValue.includes("\n")) {
-                        return `"${stringValue.replace(/"/g, '""')}"`;
-                    }
-                    return stringValue;
-                });
-                csvRows.push(row.join(","));
-            });
-
-            const csvContent = csvRows.join("\n");
-            const blob = new Blob([csvContent], { type: "text/csv" });
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `family_tree_export_${new Date().toISOString().split('T')[0]}.csv`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            window.URL.revokeObjectURL(url);
-
-            toast.success(`Exported ${familyMembers.length} family members!`);
-        } catch (error) {
-            console.error("Export error:", error);
-            toast.error("Failed to export data");
-        }
-    };
-
     const filteredMembers = familyMembers.filter(member => {
         const fullName = `${member.first_name} ${member.last_name}`.toLowerCase();
         const search = searchQuery.toLowerCase();
@@ -270,7 +219,7 @@ export default function TreeView() {
                             <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={handleExport}
+                                onClick={() => setShowExportDialog(true)}
                                 className="hidden md:flex items-center gap-2"
                             >
                                 <Download className="w-4 h-4" />
@@ -366,7 +315,7 @@ export default function TreeView() {
 
                 {/* Tree View */}
                 {viewMode === "tree" && filteredMembers.length > 0 && (
-                    <div className="h-[calc(100vh-140px)] bg-white rounded-xl shadow-sm border overflow-hidden relative">
+                    <div ref={treeContainerRef} className="h-[calc(100vh-140px)] bg-white rounded-xl shadow-sm border overflow-hidden relative">
                         <FamilyTreeGraph
                             familyMembers={filteredMembers}
                             onMemberClick={setSelectedMember}
@@ -424,6 +373,14 @@ export default function TreeView() {
             <CSVImportDialog
                 open={showImportDialog}
                 onClose={() => setShowImportDialog(false)}
+            />
+
+            {/* Export Dialog */}
+            <ExportDialog
+                open={showExportDialog}
+                onOpenChange={setShowExportDialog}
+                familyMembers={familyMembers}
+                treeContainerRef={treeContainerRef}
             />
         </div>
     );
