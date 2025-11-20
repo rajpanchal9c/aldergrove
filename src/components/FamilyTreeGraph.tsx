@@ -261,8 +261,36 @@ export default function FamilyTreeGraph({ familyMembers, onMemberClick }) {
 
     // Reset to center view
     const recenter = () => {
+        if (treeLayout.nodes.length === 0 || !containerRef.current) {
+            setScale(1);
+            setPosition({ x: 0, y: 0 });
+            return;
+        }
+
+        // Calculate bounding box of the tree
+        const minX = Math.min(...treeLayout.nodes.map(n => n.x));
+        const maxX = Math.max(...treeLayout.nodes.map(n => n.x));
+        const minY = Math.min(...treeLayout.nodes.map(n => n.y));
+        const maxY = Math.max(...treeLayout.nodes.map(n => n.y));
+
+        const treeWidth = maxX - minX;
+        const treeHeight = maxY - minY;
+        const treeCenterX = minX + treeWidth / 2;
+        const treeCenterY = minY + treeHeight / 2;
+
+        // Get container dimensions
+        const container = containerRef.current;
+        const containerWidth = container.clientWidth;
+        const containerHeight = container.clientHeight;
+
+        // Calculate position to center the tree
+        // We want treeCenterX + x = containerWidth / 2
+        // So x = containerWidth / 2 - treeCenterX
+        const newX = (containerWidth / 2) - treeCenterX;
+        const newY = (containerHeight / 2) - treeCenterY;
+
         setScale(1);
-        setPosition({ x: 0, y: 0 });
+        setPosition({ x: newX, y: newY });
     };
 
     // Zoom in/out
