@@ -11,6 +11,7 @@ interface LayoutProps {
 export default function Layout({ children }: LayoutProps) {
     const location = useLocation();
     const isTreeView = location.pathname === createPageUrl("TreeView");
+    const isAddMember = location.pathname === createPageUrl("AddMember");
 
     // Pass view controls to TreeView through custom event
     const handleViewModeChange = (mode: string) => {
@@ -24,7 +25,7 @@ export default function Layout({ children }: LayoutProps) {
     return (
         <div className="min-h-screen bg-[#FAFAFA]">
             {/* Material Design App Bar */}
-            {!isTreeView && (
+            {!isTreeView && !isAddMember && (
                 <header className="fixed top-0 left-0 right-0 z-50 bg-white shadow-md">
                     <div className="container mx-auto px-4">
                         <div className="flex items-center justify-between h-16">
@@ -83,7 +84,7 @@ export default function Layout({ children }: LayoutProps) {
             </nav>
 
             {/* Main Content */}
-            <main className={`${isTreeView ? '' : 'pt-16'} pb-20 md:pb-8`}>
+            <main className={`${isTreeView || isAddMember ? '' : 'pt-16'} pb-20 md:pb-8`}>
                 {children}
             </main>
         </div>
